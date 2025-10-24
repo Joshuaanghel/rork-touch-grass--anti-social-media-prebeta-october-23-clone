@@ -17,6 +17,7 @@ import { Mail, Lock, UserPlus, LogIn } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { trpc } from '@/lib/trpc';
+import * as WebBrowser from 'expo-web-browser';
 
 export default function AuthScreen() {
   const router = useRouter();
@@ -29,8 +30,9 @@ export default function AuthScreen() {
 
   const signupMutation = trpc.auth.signup.useMutation();
   const loginMutation = trpc.auth.login.useMutation();
+  const [isMicrosoftLoading, setIsMicrosoftLoading] = useState(false);
 
-  const isLoading = signupMutation.isPending || loginMutation.isPending;
+  const isLoading = signupMutation.isPending || loginMutation.isPending || isMicrosoftLoading;
 
   const validateEmail = (email: string): boolean => {
     return email.toLowerCase().endsWith('@usf.edu');
@@ -172,6 +174,97 @@ export default function AuthScreen() {
     }
   };
 
+  const handleMicrosoftSignIn = async () => {
+    setErrorMessage('');
+    setIsMicrosoftLoading(true);
+
+    try {
+      const clientId = '9188040d-6c67-4c5b-b112-36a304b66dad';
+      const redirectUri = 'https://login.microsoftonline.com/common/oauth2/nativeclient';
+      const scope = 'openid profile email User.Read';
+      
+      const authUrl = `https://login.microsoftonline.com/common/oauth2/v2.0/authorize?` +
+        `client_id=${clientId}` +
+        `&response_type=token` +
+        `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+        `&scope=${encodeURIComponent(scope)}` +
+        `&response_mode=fragment`;
+
+      console.log('[Auth] Opening Microsoft OAuth URL');
+      const result = await WebBrowser.openAuthSessionAsync(authUrl, redirectUri);
+
+      if (result.type === 'success' && result.url) {
+        console.log('[Auth] OAuth success, parsing URL:', result.url);
+        
+        const urlParams = new URLSearchParams(result.url.split('#')[1]);
+        const accessToken = urlParams.get('access_token');
+
+        if (!accessToken) {
+          throw new Error('No access token received from Microsoft');
+        }
+
+        console.log('[Auth] Got access token, fetching user info');
+        const userInfoResponse = await fetch('https://graph.microsoft.com/v1.0/me', {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        });
+
+        if (!userInfoResponse.ok) {
+          throw new Error('Failed to fetch user info from Microsoft');
+        }
+
+        const userInfo = await userInfoResponse.json() as { mail?: string; userPrincipalName?: string };
+        const email = userInfo.mail || userInfo.userPrincipalName;
+
+        if (!email) {
+          throw new Error('No email found in Microsoft account');
+        }
+
+        console.log('[Auth] Microsoft email:', email);
+
+        if (!email.toLowerCase().endsWith('@usf.edu')) {
+          throw new Error('Only University of South Florida (@usf.edu) email addresses are accepted.');
+        }
+
+        const loginResult = await loginMutation.mutateAsync({
+          email: email.toLowerCase(),
+          provider: 'microsoft',
+          accessToken,
+        });
+
+        console.log('[Auth] Microsoft login successful:', loginResult);
+
+        await AsyncStorage.setItem('userAuth', JSON.stringify({
+          userId: loginResult.userId,
+          email: loginResult.email,
+          isAuthenticated: true,
+        }));
+
+        if (loginResult.user && loginResult.user.onboardingCompleted) {
+          router.replace('/waiting-room');
+        } else {
+          router.replace('/onboarding');
+        }
+      } else if (result.type === 'cancel') {
+        console.log('[Auth] Microsoft OAuth cancelled');
+        setErrorMessage('Microsoft sign in was cancelled');
+      }
+    } catch (error: unknown) {
+      console.error('[Auth] Microsoft sign in error:', error);
+      
+      let message = 'Microsoft sign in failed. Please try again.';
+      
+      if (error && typeof error === 'object' && 'message' in error && typeof error.message === 'string') {
+        message = error.message;
+      }
+      
+      setErrorMessage(message);
+    } finally {
+      setIsMicrosoftLoading(false);
+    }
+  };
+
   return (
     <>
       <Stack.Screen options={{ headerShown: false }} />
@@ -301,7 +394,7 @@ export default function AuthScreen() {
                   end={{ x: 1, y: 1 }}
                   style={styles.submitButtonGradient}
                 >
-                  {isLoading ? (
+                  {isLoading && !isMicrosoftLoading ? (
                     <ActivityIndicator color={Colors.dark.background} />
                   ) : (
                     <Text style={styles.submitButtonText}>
@@ -309,6 +402,34 @@ export default function AuthScreen() {
                     </Text>
                   )}
                 </LinearGradient>
+              </TouchableOpacity>
+
+              <View style={styles.divider}>
+                <View style={styles.dividerLine} />
+                <Text style={styles.dividerText}>or</Text>
+                <View style={styles.dividerLine} />
+              </View>
+
+              <TouchableOpacity
+                style={styles.microsoftButton}
+                onPress={handleMicrosoftSignIn}
+                disabled={isLoading}
+              >
+                {isMicrosoftLoading ? (
+                  <ActivityIndicator color="#FFFFFF" />
+                ) : (
+                  <>
+                    <View style={styles.microsoftIcon}>
+                      <View style={styles.microsoftSquare1} />
+                      <View style={styles.microsoftSquare2} />
+                      <View style={styles.microsoftSquare3} />
+                      <View style={styles.microsoftSquare4} />
+                    </View>
+                    <Text style={styles.microsoftButtonText}>
+                      Sign in with Microsoft
+                    </Text>
+                  </>
+                )}
               </TouchableOpacity>
             </View>
           </ScrollView>
@@ -468,5 +589,66 @@ const styles = StyleSheet.create({
     fontWeight: '600' as const,
     color: '#FCA5A5',
     lineHeight: 20,
+  },
+  divider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 24,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: Colors.dark.border,
+  },
+  dividerText: {
+    marginHorizontal: 16,
+    fontSize: 14,
+    color: Colors.dark.textSecondary,
+    fontWeight: '500' as const,
+  },
+  microsoftButton: {
+    backgroundColor: '#2F2F2F',
+    borderRadius: 16,
+    paddingVertical: 18,
+    paddingHorizontal: 24,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    borderWidth: 1,
+    borderColor: Colors.dark.border,
+    minHeight: 56,
+  },
+  microsoftButtonText: {
+    fontSize: 16,
+    fontWeight: '600' as const,
+    color: '#FFFFFF',
+  },
+  microsoftIcon: {
+    width: 20,
+    height: 20,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 2,
+  },
+  microsoftSquare1: {
+    width: 8,
+    height: 8,
+    backgroundColor: '#F25022',
+  },
+  microsoftSquare2: {
+    width: 8,
+    height: 8,
+    backgroundColor: '#7FBA00',
+  },
+  microsoftSquare3: {
+    width: 8,
+    height: 8,
+    backgroundColor: '#00A4EF',
+  },
+  microsoftSquare4: {
+    width: 8,
+    height: 8,
+    backgroundColor: '#FFB900',
   },
 });
