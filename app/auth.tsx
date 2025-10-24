@@ -31,9 +31,8 @@ export default function AuthScreen() {
   const signupMutation = trpc.auth.signup.useMutation();
   const loginMutation = trpc.auth.login.useMutation();
   const [isMicrosoftLoading, setIsMicrosoftLoading] = useState(false);
-  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
 
-  const isLoading = signupMutation.isPending || loginMutation.isPending || isMicrosoftLoading || isGoogleLoading;
+  const isLoading = signupMutation.isPending || loginMutation.isPending || isMicrosoftLoading;
 
   const validateEmail = (email: string): boolean => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -176,99 +175,6 @@ export default function AuthScreen() {
     }
   };
 
-  const handleGoogleSignIn = async () => {
-    setErrorMessage('');
-    setIsGoogleLoading(true);
-
-    try {
-      const clientId = Platform.select({
-        ios: '234234234234-abcdefghijklmnop.apps.googleusercontent.com',
-        android: '234234234234-abcdefghijklmnop.apps.googleusercontent.com',
-        default: '234234234234-abcdefghijklmnop.apps.googleusercontent.com',
-      });
-      
-      const redirectUri = Platform.select({
-        web: window.location.origin,
-        default: 'com.googleusercontent.apps.234234234234-abcdefghijklmnop:/oauth2redirect',
-      });
-
-      const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?` +
-        `client_id=${clientId}` +
-        `&redirect_uri=${encodeURIComponent(redirectUri as string)}` +
-        `&response_type=token` +
-        `&scope=${encodeURIComponent('openid email profile')}`;
-
-      console.log('[Auth] Opening Google OAuth URL');
-      const result = await WebBrowser.openAuthSessionAsync(authUrl, redirectUri as string);
-
-      if (result.type === 'success' && result.url) {
-        console.log('[Auth] OAuth success, parsing URL:', result.url);
-        
-        const urlParams = new URLSearchParams(result.url.split('#')[1] || result.url.split('?')[1]);
-        const accessToken = urlParams.get('access_token');
-
-        if (!accessToken) {
-          throw new Error('No access token received from Google');
-        }
-
-        console.log('[Auth] Got access token, fetching user info');
-        const userInfoResponse = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-          },
-        });
-
-        if (!userInfoResponse.ok) {
-          throw new Error('Failed to fetch user info from Google');
-        }
-
-        const userInfo = await userInfoResponse.json() as { email?: string };
-        const email = userInfo.email;
-
-        if (!email) {
-          throw new Error('No email found in Google account');
-        }
-
-        console.log('[Auth] Google email:', email);
-
-        const loginResult = await loginMutation.mutateAsync({
-          email: email.toLowerCase(),
-          provider: 'google',
-          accessToken,
-        });
-
-        console.log('[Auth] Google login successful:', loginResult);
-
-        await AsyncStorage.setItem('userAuth', JSON.stringify({
-          userId: loginResult.userId,
-          email: loginResult.email,
-          isAuthenticated: true,
-        }));
-
-        if (loginResult.user && loginResult.user.onboardingCompleted) {
-          router.replace('/waiting-room');
-        } else {
-          router.replace('/onboarding');
-        }
-      } else if (result.type === 'cancel') {
-        console.log('[Auth] Google OAuth cancelled');
-        setErrorMessage('Google sign in was cancelled');
-      }
-    } catch (error: unknown) {
-      console.error('[Auth] Google sign in error:', error);
-      
-      let message = 'Google sign in failed. Please try again.';
-      
-      if (error && typeof error === 'object' && 'message' in error && typeof error.message === 'string') {
-        message = error.message;
-      }
-      
-      setErrorMessage(message);
-    } finally {
-      setIsGoogleLoading(false);
-    }
-  };
-
   const handleMicrosoftSignIn = async () => {
     setErrorMessage('');
     setIsMicrosoftLoading(true);
@@ -278,12 +184,13 @@ export default function AuthScreen() {
       const redirectUri = 'https://login.microsoftonline.com/common/oauth2/nativeclient';
       const scope = 'openid profile email User.Read';
       
-      const authUrl = `https://login.microsoftonline.com/common/oauth2/v2.0/authorize?` +
+      const authUrl = `https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize?` +
         `client_id=${clientId}` +
         `&response_type=token` +
         `&redirect_uri=${encodeURIComponent(redirectUri)}` +
         `&scope=${encodeURIComponent(scope)}` +
-        `&response_mode=fragment`;
+        `&response_mode=fragment` +
+        `&prompt=select_account`;
 
       console.log('[Auth] Opening Microsoft OAuth URL');
       const result = await WebBrowser.openAuthSessionAsync(authUrl, redirectUri);
@@ -523,24 +430,7 @@ export default function AuthScreen() {
                 )}
               </TouchableOpacity>
 
-              <TouchableOpacity
-                style={styles.googleButton}
-                onPress={handleGoogleSignIn}
-                disabled={isLoading}
-              >
-                {isGoogleLoading ? (
-                  <ActivityIndicator color="#1F2937" />
-                ) : (
-                  <>
-                    <View style={styles.googleIcon}>
-                      <Text style={styles.googleIconText}>G</Text>
-                    </View>
-                    <Text style={styles.googleButtonText}>
-                      Sign in with Google
-                    </Text>
-                  </>
-                )}
-              </TouchableOpacity>
+
             </View>
           </ScrollView>
         </KeyboardAvoidingView>
@@ -761,36 +651,5 @@ const styles = StyleSheet.create({
     height: 8,
     backgroundColor: '#FFB900',
   },
-  googleButton: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    paddingVertical: 18,
-    paddingHorizontal: 24,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 12,
-    borderWidth: 1,
-    borderColor: Colors.dark.border,
-    minHeight: 56,
-    marginTop: 12,
-  },
-  googleButtonText: {
-    fontSize: 16,
-    fontWeight: '600' as const,
-    color: '#1F2937',
-  },
-  googleIcon: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: '#4285F4',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  googleIconText: {
-    fontSize: 14,
-    fontWeight: '700' as const,
-    color: '#FFFFFF',
-  },
+
 });
