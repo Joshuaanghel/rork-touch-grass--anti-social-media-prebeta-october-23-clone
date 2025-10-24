@@ -31,11 +31,13 @@ export default function AuthScreen() {
   const signupMutation = trpc.auth.signup.useMutation();
   const loginMutation = trpc.auth.login.useMutation();
   const [isMicrosoftLoading, setIsMicrosoftLoading] = useState(false);
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
 
-  const isLoading = signupMutation.isPending || loginMutation.isPending || isMicrosoftLoading;
+  const isLoading = signupMutation.isPending || loginMutation.isPending || isMicrosoftLoading || isGoogleLoading;
 
   const validateEmail = (email: string): boolean => {
-    return email.toLowerCase().endsWith('@usf.edu');
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
   };
 
   const handleSignup = async () => {
@@ -50,8 +52,8 @@ export default function AuthScreen() {
     }
 
     if (!validateEmail(email)) {
-      console.log('[Auth] Validation failed: invalid email domain', email);
-      setErrorMessage('Only University of South Florida (@usf.edu) email addresses are accepted.');
+      console.log('[Auth] Validation failed: invalid email format', email);
+      setErrorMessage('Please enter a valid email address.');
       return;
     }
 
@@ -174,6 +176,99 @@ export default function AuthScreen() {
     }
   };
 
+  const handleGoogleSignIn = async () => {
+    setErrorMessage('');
+    setIsGoogleLoading(true);
+
+    try {
+      const clientId = Platform.select({
+        ios: '234234234234-abcdefghijklmnop.apps.googleusercontent.com',
+        android: '234234234234-abcdefghijklmnop.apps.googleusercontent.com',
+        default: '234234234234-abcdefghijklmnop.apps.googleusercontent.com',
+      });
+      
+      const redirectUri = Platform.select({
+        web: window.location.origin,
+        default: 'com.googleusercontent.apps.234234234234-abcdefghijklmnop:/oauth2redirect',
+      });
+
+      const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?` +
+        `client_id=${clientId}` +
+        `&redirect_uri=${encodeURIComponent(redirectUri as string)}` +
+        `&response_type=token` +
+        `&scope=${encodeURIComponent('openid email profile')}`;
+
+      console.log('[Auth] Opening Google OAuth URL');
+      const result = await WebBrowser.openAuthSessionAsync(authUrl, redirectUri as string);
+
+      if (result.type === 'success' && result.url) {
+        console.log('[Auth] OAuth success, parsing URL:', result.url);
+        
+        const urlParams = new URLSearchParams(result.url.split('#')[1] || result.url.split('?')[1]);
+        const accessToken = urlParams.get('access_token');
+
+        if (!accessToken) {
+          throw new Error('No access token received from Google');
+        }
+
+        console.log('[Auth] Got access token, fetching user info');
+        const userInfoResponse = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        });
+
+        if (!userInfoResponse.ok) {
+          throw new Error('Failed to fetch user info from Google');
+        }
+
+        const userInfo = await userInfoResponse.json() as { email?: string };
+        const email = userInfo.email;
+
+        if (!email) {
+          throw new Error('No email found in Google account');
+        }
+
+        console.log('[Auth] Google email:', email);
+
+        const loginResult = await loginMutation.mutateAsync({
+          email: email.toLowerCase(),
+          provider: 'google',
+          accessToken,
+        });
+
+        console.log('[Auth] Google login successful:', loginResult);
+
+        await AsyncStorage.setItem('userAuth', JSON.stringify({
+          userId: loginResult.userId,
+          email: loginResult.email,
+          isAuthenticated: true,
+        }));
+
+        if (loginResult.user && loginResult.user.onboardingCompleted) {
+          router.replace('/waiting-room');
+        } else {
+          router.replace('/onboarding');
+        }
+      } else if (result.type === 'cancel') {
+        console.log('[Auth] Google OAuth cancelled');
+        setErrorMessage('Google sign in was cancelled');
+      }
+    } catch (error: unknown) {
+      console.error('[Auth] Google sign in error:', error);
+      
+      let message = 'Google sign in failed. Please try again.';
+      
+      if (error && typeof error === 'object' && 'message' in error && typeof error.message === 'string') {
+        message = error.message;
+      }
+      
+      setErrorMessage(message);
+    } finally {
+      setIsGoogleLoading(false);
+    }
+  };
+
   const handleMicrosoftSignIn = async () => {
     setErrorMessage('');
     setIsMicrosoftLoading(true);
@@ -222,10 +317,6 @@ export default function AuthScreen() {
         }
 
         console.log('[Auth] Microsoft email:', email);
-
-        if (!email.toLowerCase().endsWith('@usf.edu')) {
-          throw new Error('Only University of South Florida (@usf.edu) email addresses are accepted.');
-        }
 
         const loginResult = await loginMutation.mutateAsync({
           email: email.toLowerCase(),
@@ -287,7 +378,7 @@ export default function AuthScreen() {
               <Text style={styles.betaText}>BETA</Text>
               <Text style={styles.subtitle}>
                 {mode === 'signup' 
-                  ? 'Join the USF community'
+                  ? 'Join the exclusive early community'
                   : 'Welcome back!'}
               </Text>
             </View>
@@ -325,7 +416,7 @@ export default function AuthScreen() {
                   <Mail size={20} color={Colors.dark.textSecondary} />
                   <TextInput
                     style={styles.input}
-                    placeholder="USF Email (@usf.edu)"
+                    placeholder="Email"
                     placeholderTextColor={Colors.dark.textTertiary}
                     value={email}
                     onChangeText={setEmail}
@@ -375,10 +466,10 @@ export default function AuthScreen() {
               {mode === 'signup' && (
                 <View style={styles.infoBox}>
                   <Text style={styles.infoText}>
-                    🎓 USF Students Only
+                    🎓 Starting at USF
                   </Text>
                   <Text style={styles.infoSubtext}>
-                    Only @usf.edu emails are accepted to ensure a trusted community of University of South Florida students.
+                    Touch Grass is launching at the University of South Florida. Join our exclusive early community as we build something special.
                   </Text>
                 </View>
               )}
@@ -427,6 +518,25 @@ export default function AuthScreen() {
                     </View>
                     <Text style={styles.microsoftButtonText}>
                       Sign in with Microsoft
+                    </Text>
+                  </>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.googleButton}
+                onPress={handleGoogleSignIn}
+                disabled={isLoading}
+              >
+                {isGoogleLoading ? (
+                  <ActivityIndicator color="#1F2937" />
+                ) : (
+                  <>
+                    <View style={styles.googleIcon}>
+                      <Text style={styles.googleIconText}>G</Text>
+                    </View>
+                    <Text style={styles.googleButtonText}>
+                      Sign in with Google
                     </Text>
                   </>
                 )}
@@ -650,5 +760,37 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     backgroundColor: '#FFB900',
+  },
+  googleButton: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    paddingVertical: 18,
+    paddingHorizontal: 24,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    borderWidth: 1,
+    borderColor: Colors.dark.border,
+    minHeight: 56,
+    marginTop: 12,
+  },
+  googleButtonText: {
+    fontSize: 16,
+    fontWeight: '600' as const,
+    color: '#1F2937',
+  },
+  googleIcon: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#4285F4',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  googleIconText: {
+    fontSize: 14,
+    fontWeight: '700' as const,
+    color: '#FFFFFF',
   },
 });

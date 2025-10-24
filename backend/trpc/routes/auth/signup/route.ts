@@ -16,10 +16,6 @@ export default publicProcedure
   .mutation(async ({ input }) => {
     console.log('[API] Signup attempt for:', input.email);
     
-    if (!input.email.toLowerCase().endsWith('@usf.edu')) {
-      throw new Error('Only @usf.edu email addresses are allowed for University of South Florida students');
-    }
-    
     const existingUser = getUserByEmail(input.email);
     if (existingUser) {
       throw new Error('An account with this email already exists');

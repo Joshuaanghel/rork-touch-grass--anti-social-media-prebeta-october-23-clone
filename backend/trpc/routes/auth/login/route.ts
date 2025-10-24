@@ -11,17 +11,13 @@ export default publicProcedure
   .input(z.object({
     email: z.string().email(),
     password: z.string().optional(),
-    provider: z.enum(['email', 'microsoft']).optional().default('email'),
+    provider: z.enum(['email', 'microsoft', 'google']).optional().default('email'),
     accessToken: z.string().optional(),
   }))
   .mutation(async ({ input }) => {
     console.log('[API] Login attempt for:', input.email, 'provider:', input.provider);
     
-    if (input.provider === 'microsoft') {
-      if (!input.email.toLowerCase().endsWith('@usf.edu')) {
-        throw new Error('Only @usf.edu email addresses are allowed for University of South Florida students');
-      }
-      
+    if (input.provider === 'microsoft' || input.provider === 'google') {
       let auth = getUserByEmail(input.email);
       
       if (!auth) {
