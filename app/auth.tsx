@@ -39,28 +39,35 @@ export default function AuthScreen() {
   const handleSignup = async () => {
     setErrorMessage('');
     
+    console.log('[Auth] Signup attempt started', { email, hasPassword: !!password, hasConfirmPassword: !!confirmPassword });
+    
     if (!email || !password || !confirmPassword) {
+      console.log('[Auth] Validation failed: missing fields');
       setErrorMessage('Please fill in all fields');
       return;
     }
 
     if (!validateEmail(email)) {
+      console.log('[Auth] Validation failed: invalid email domain', email);
       setErrorMessage('Only University of South Florida (@usf.edu) email addresses are accepted.');
       return;
     }
 
     if (password.length < 6) {
+      console.log('[Auth] Validation failed: password too short');
       setErrorMessage('Password must be at least 6 characters');
       return;
     }
 
     if (password !== confirmPassword) {
+      console.log('[Auth] Validation failed: passwords do not match');
       setErrorMessage('Passwords do not match');
       return;
     }
 
     try {
       const userId = `user_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+      console.log('[Auth] Attempting signup mutation', { email: email.toLowerCase(), userId });
       
       const result = await signupMutation.mutateAsync({
         email: email.toLowerCase(),
@@ -68,7 +75,7 @@ export default function AuthScreen() {
         userId,
       });
 
-      console.log('Signup successful:', result);
+      console.log('[Auth] Signup successful:', result);
       
       await AsyncStorage.setItem('userAuth', JSON.stringify({
         userId: result.userId,
@@ -76,11 +83,28 @@ export default function AuthScreen() {
         isAuthenticated: true,
       }));
 
+      console.log('[Auth] Redirecting to onboarding');
       router.replace('/onboarding');
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'Signup failed. Please try again.';
+      console.error('[Auth] Signup error:', error);
+      console.error('[Auth] Error type:', typeof error);
+      console.error('[Auth] Error details:', JSON.stringify(error, null, 2));
+      
+      let message = 'Signup failed. Please try again.';
+      
+      if (error && typeof error === 'object') {
+        if ('message' in error && typeof error.message === 'string') {
+          message = error.message;
+        } else if ('data' in error && error.data && typeof error.data === 'object') {
+          const data = error.data as { message?: string };
+          if (data.message) {
+            message = data.message;
+          }
+        }
+      }
+      
       setErrorMessage(message);
-      console.error('Signup error:', error);
+      console.error('[Auth] Final error message:', message);
     }
   };
 
