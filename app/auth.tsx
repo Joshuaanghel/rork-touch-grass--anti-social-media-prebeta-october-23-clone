@@ -88,19 +88,27 @@ export default function AuthScreen() {
     } catch (error: unknown) {
       console.error('[Auth] Signup error:', error);
       console.error('[Auth] Error type:', typeof error);
-      console.error('[Auth] Error details:', JSON.stringify(error, null, 2));
       
       let message = 'Signup failed. Please try again.';
       
-      if (error && typeof error === 'object') {
-        if ('message' in error && typeof error.message === 'string') {
-          message = error.message;
-        } else if ('data' in error && error.data && typeof error.data === 'object') {
-          const data = error.data as { message?: string };
-          if (data.message) {
-            message = data.message;
+      try {
+        if (error && typeof error === 'object') {
+          if ('message' in error && typeof error.message === 'string') {
+            message = error.message;
+          } else if ('shape' in error && error.shape && typeof error.shape === 'object') {
+            const shape = error.shape as { message?: string };
+            if (shape.message) {
+              message = shape.message;
+            }
+          } else if ('data' in error && error.data && typeof error.data === 'object') {
+            const data = error.data as { message?: string };
+            if (data.message) {
+              message = data.message;
+            }
           }
         }
+      } catch (parseError) {
+        console.error('[Auth] Error parsing error message:', parseError);
       }
       
       setErrorMessage(message);
@@ -136,9 +144,31 @@ export default function AuthScreen() {
         router.replace('/onboarding');
       }
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'Login failed. Please check your credentials.';
+      console.error('[Auth] Login error:', error);
+      
+      let message = 'Login failed. Please check your credentials.';
+      
+      try {
+        if (error && typeof error === 'object') {
+          if ('message' in error && typeof error.message === 'string') {
+            message = error.message;
+          } else if ('shape' in error && error.shape && typeof error.shape === 'object') {
+            const shape = error.shape as { message?: string };
+            if (shape.message) {
+              message = shape.message;
+            }
+          } else if ('data' in error && error.data && typeof error.data === 'object') {
+            const data = error.data as { message?: string };
+            if (data.message) {
+              message = data.message;
+            }
+          }
+        }
+      } catch (parseError) {
+        console.error('[Auth] Error parsing error message:', parseError);
+      }
+      
       setErrorMessage(message);
-      console.error('Login error:', error);
     }
   };
 
