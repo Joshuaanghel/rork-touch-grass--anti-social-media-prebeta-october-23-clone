@@ -98,6 +98,12 @@ export default function AuthScreen() {
         if (error && typeof error === 'object') {
           if ('message' in error && typeof error.message === 'string') {
             message = error.message;
+            
+            if (message.includes('404') || message.includes('not found')) {
+              message = '🔴 Cannot connect to server. Please make sure the backend is running.';
+            } else if (message.includes('Network request failed') || message.includes('fetch')) {
+              message = '🔴 Network error. Check your internet connection and try again.';
+            }
           } else if ('shape' in error && error.shape && typeof error.shape === 'object') {
             const shape = error.shape as { message?: string };
             if (shape.message) {
@@ -155,6 +161,12 @@ export default function AuthScreen() {
         if (error && typeof error === 'object') {
           if ('message' in error && typeof error.message === 'string') {
             message = error.message;
+            
+            if (message.includes('404') || message.includes('not found')) {
+              message = '🔴 Cannot connect to server. Please make sure the backend is running.';
+            } else if (message.includes('Network request failed') || message.includes('fetch')) {
+              message = '🔴 Network error. Check your internet connection and try again.';
+            }
           } else if ('shape' in error && error.shape && typeof error.shape === 'object') {
             const shape = error.shape as { message?: string };
             if (shape.message) {

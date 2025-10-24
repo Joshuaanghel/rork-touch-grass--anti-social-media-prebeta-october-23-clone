@@ -26,12 +26,19 @@ export const trpcClient = trpc.createClient({
       fetch: async (url, options) => {
         try {
           console.log('[tRPC] Making request to:', url);
+          console.log('[tRPC] Base URL:', getBaseUrl());
+          
           const response = await fetch(url, options);
           
           if (!response.ok) {
             console.error('[tRPC] HTTP error:', response.status, response.statusText);
             const text = await response.text();
-            console.error('[tRPC] Response body:', text);
+            console.error('[tRPC] Response body:', text.substring(0, 500));
+            
+            if (response.status === 404) {
+              throw new Error('Backend API not found. Make sure the server is running and the URL is correct.');
+            }
+            
             throw new Error(`HTTP ${response.status}: ${text}`);
           }
           
@@ -42,6 +49,10 @@ export const trpcClient = trpc.createClient({
           return response;
         } catch (error) {
           console.error('[tRPC] Fetch error:', error);
+          if (error instanceof TypeError && error.message.includes('Network request failed')) {
+            console.error('[tRPC] Network error - check that the backend server is running and accessible');
+            console.error('[tRPC] Current base URL:', getBaseUrl());
+          }
           throw error;
         }
       },
